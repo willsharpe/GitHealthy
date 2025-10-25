@@ -1,111 +1,93 @@
-
 "use client";
 
+import ImageCapture from "./components/ImageCapture";
+import RecipeList from "./components/RecipeList";
+import { useState } from "react";
 
-import Image from "next/image";
-import analyzeIngredients from "./image";
-import React, { useRef, useEffect, useState } from 'react';
-import { GoogleGenAI } from "@google/genai/web";
+type Ingredient = { name: string; confidence: number };
+type Recipe = { id: number; title: string; image: string }; // adjust if needed
 
-
-export default function ImageCapture() {
-  const [preview, setPreview] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+export default function Page() {
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [ingredientNames, setIngredientNames] = useState<string[]>([]);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleFile = (e:React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if(!file)return;
-    const reader = new FileReader();
-    reader.onloadend = () => setPreview(reader.result as string);
-    reader.readAsDataURL(file);
+  const handleAnalyze = async ({ base64, mimeType }: { base64: string; mimeType: string }) => {
+    const res = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base64, mimeType }),
+    });
+  
+    const data = await res.json();
+    let text = (data.text ?? "").trim()
+      .replace(/^```json\s*/i, "")
+      .replace(/^```/, "")
+      .replace(/```$/, "");
+
+    const parsed: Ingredient[] = JSON.parse(text);
+    setIngredients(parsed);
+    setIngredientNames(parsed.map((i) => i.name.toLowerCase()));
+    setRecipes([]); // clear any old results when a new image is analyzed
   };
 
-  const analyzeImage = async () => {
-    if(!preview){
-      return;
-    }
+  const handleRecipes = async () => {
+    if (!ingredientNames.length) return;
     setLoading(true);
-    setResult("");
-    
-    const base64 = preview.split(",");
-    const res = await fetch("/api/analyze", {
-      method:"POST",
-      headers:{"Content-Type": "application/json"},
-      body:JSON.stringify({base64,mimeType:"image/jpeg"}),
-    });
-
-    const json = await res.json();
-    if(!res.ok){
-      throw new Error(json?.error || "API Error");
+    try {
+      const res = await fetch("/api/recipes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ingredients: ingredientNames }), // or recipeIngredients if your API expects that
+      });
+      const json = await res.json();
+      setRecipes(json.recipes ?? []);
+    } finally {
+      setLoading(false);
     }
-    setResult(json.text);
+  };
+
+  const handleReset = () => {
+    setIngredients([]);
+    setIngredientNames([]);
+    setRecipes([]);
   }
 
-
-
+  const hasIngredients = ingredients.length > 0;
+  const hasRecipes = recipes.length > 0;
 
   return (
-    <div className="flex flex-col items-center gap-4 p-6">
-      <h2 className="text-xl font-semibold mb-2">Ingredient Identifier 🍳</h2>
+    
+    <div className="min-h-screen bg-green-100 flex flex-col items-center p-6">
+      <div className="absolute top-4 left-6">
+        <h1 className=" px-4 py-4 text-xl font-bold rounded-lg text-left bg-purple-100 text-black">GitHealthy</h1>
+      </div>
+      <ImageCapture onAnalyze={handleAnalyze}onReset={handleReset}/>
 
-      {!preview && (
-        <div className="flex gap-4">
-          <button
-            onClick={analyzeImage}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Take Photo
-          </button>
+      {hasIngredients && (
+        <div className="text-sm p-4 rounded-lg mt-4 w-full max-w-md">
+          <ul className="divide-y divide-gray-200">
+            {ingredients.map((item, index) => (
+              <li key={index} className="py-2 flex justify-between text-gray-700">
+                <span>{item.name}</span>
+                <span className="font-medium">confidence: {Math.round(item.confidence)}</span>
+              </li>
+            ))}
+          </ul>
 
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-          >
-            Upload Image
-          </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFile}
-            className="hidden"
-          />
-        </div>
-      )}
-
-      {preview && (
-        <>
-          <img
-            src={preview}
-            alt="Preview"
-            className="w-80 rounded-2xl shadow-md object-cover"
-          />
-
-          <div className="flex gap-4">
+          <div className="flex justify-center py-6">
             <button
-              onClick={() => setPreview(null)}
-              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-            >
-              Retake
-            </button>
-            <button
-              onClick={analyzeImage}
+              className="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60"
+              onClick={handleRecipes}
               disabled={loading}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-60"
             >
-              {loading ? "Analyzing..." : "Analyze Image"}
+              {loading ? "Fetching recipes..." : "Get Recipes 🍽️"}
             </button>
           </div>
-        </>
-      )}
 
-      {result && (
-        <pre className="bg-gray-100 text-sm p-4 rounded-lg mt-4 w-full max-w-md overflow-auto">
-          {result}
-        </pre>
+          {hasRecipes && <RecipeList recipes={recipes} />}
+        </div>
       )}
     </div>
   );
