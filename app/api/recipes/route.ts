@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     // Build GET query correctly
     const params = new URLSearchParams({
       ingredients: names.join(","), // <-- correct param name for this endpoint
-      number: "3",
+      number: "5",
       ranking: "1",
       ignorePantry: "true",
       apiKey,
